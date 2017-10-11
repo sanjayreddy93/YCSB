@@ -91,6 +91,7 @@ DATABASES = {
     "solr"         : "com.yahoo.ycsb.db.solr.SolrClient",
     "solr6"        : "com.yahoo.ycsb.db.solr6.SolrClient",
     "tarantool"    : "com.yahoo.ycsb.db.TarantoolClient",
+    "toydb"        : "com.yahoo.ycsb.db.ToyDBClient",
     "voldemort"    : "com.yahoo.ycsb.db.VoldemortClient"
 }
 
