@@ -40,6 +40,12 @@ import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import java.util.Vector;
+import java.util.Map.Entry;
+import java.net.HttpURLConnection;
+import java.net.URLEncoder;
+import java.net.URL;
+import java.io.InputStreamReader;
+import java.io.BufferedReader;
 
 /**
  * YCSB binding for <a href="http://redis.io/">Redis</a>.
@@ -118,12 +124,29 @@ public class RedisClient extends DB {
   @Override
   public Status insert(String table, String key,
       Map<String, ByteIterator> values) {
-    if (jedis.hmset(key, StringByteIterator.getStringMap(values))
-        .equals("OK")) {
-      jedis.zadd(INDEX_KEY, hash(key), key);
-      return Status.OK;
+    try {
+      Map<String, String> map = StringByteIterator.getStringMap(values);
+      String url = "http://localhost:5000/insert?table=User&key="+key+"&index_key=";
+      url+=INDEX_KEY+"&hashed_key="+hash(key)+"&";
+      for (Map.Entry<String, String> field : map.entrySet()){
+        url+=field.getKey()+"="+URLEncoder.encode(field.getValue(), "UTF-8")+"&";
+      }
+      url = url.substring(0, url.length()-1);
+      URL obj;
+      HttpURLConnection con = null;
+      obj = new URL(url);
+      con = (HttpURLConnection) obj.openConnection();
+      con.setRequestMethod("GET");
+      con.setRequestProperty("Accept", "application/json");
+      BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()));
+      in.readLine();
+      in.close();
+    } catch (Exception e) {
+      e.printStackTrace();
+      return Status.ERROR;
     }
-    return Status.ERROR;
+
+    return Status.OK;
   }
 
   @Override
