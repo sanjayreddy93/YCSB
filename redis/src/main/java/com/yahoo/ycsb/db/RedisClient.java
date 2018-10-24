@@ -18,8 +18,6 @@
 /**
  * Redis client binding for YCSB.
  *
- * All YCSB records are mapped to a Redis *hash field*.  For scanning
- * operations, all keys are saved (by an arbitrary hash) in a sorted set.
  */
 
 package com.yahoo.ycsb.db;
@@ -39,21 +37,15 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
-import java.util.Vector;
-import java.util.Map.Entry;
-import java.net.HttpURLConnection;
-import java.net.URLEncoder;
-import java.net.URL;
-import java.io.InputStreamReader;
-import java.io.BufferedReader;
+import java.util.Vector
+
 
 /**
  * YCSB binding for <a href="http://redis.io/">Redis</a>.
  *
  * See {@code redis/README.md} for details.
  */
-public class RedisClient extends DB {
-
+ public class RedisClient extends DB {
   private Jedis jedis;
 
   public static final String HOST_PROPERTY = "redis.host";
@@ -61,32 +53,12 @@ public class RedisClient extends DB {
   public static final String PASSWORD_PROPERTY = "redis.password";
 
   public static final String INDEX_KEY = "_indices";
-
   public void init() throws DBException {
-    Properties props = getProperties();
-    int port;
-
-    String portString = props.getProperty(PORT_PROPERTY);
-    if (portString != null) {
-      port = Integer.parseInt(portString);
-    } else {
-      port = Protocol.DEFAULT_PORT;
-    }
-    String host = props.getProperty(HOST_PROPERTY);
-
-    jedis = new Jedis(host, port);
-    jedis.connect();
-
-    String password = props.getProperty(PASSWORD_PROPERTY);
-    if (password != null) {
-      jedis.auth(password);
-    }
   }
 
   public void cleanup() throws DBException {
-    jedis.disconnect();
   }
-
+  
   /*
    * Calculate a hash for a key to store it in an index. The actual return value
    * of this function is not interesting -- it primarily needs to be fast and
@@ -97,28 +69,41 @@ public class RedisClient extends DB {
     return key.hashCode();
   }
 
-  // XXX jedis.select(int index) to switch to `table`
-
+// XXX jedis.select(int index) to switch to `table`
   @Override
   public Status read(String table, String key, Set<String> fields,
       Map<String, ByteIterator> result) {
-    if (fields == null) {
-      StringByteIterator.putAllAsByteIterators(result, jedis.hgetAll(key));
-    } else {
-      String[] fieldArray =
-          (String[]) fields.toArray(new String[fields.size()]);
-      List<String> values = jedis.hmget(key, fieldArray);
-
-      Iterator<String> fieldIterator = fields.iterator();
-      Iterator<String> valueIterator = values.iterator();
-
-      while (fieldIterator.hasNext() && valueIterator.hasNext()) {
-        result.put(fieldIterator.next(),
-            new StringByteIterator(valueIterator.next()));
+    try {
+      String url = "https://o9doeirora.execute-api.eu-central-1.amazonaws.com/default/serverlessfunct/read/Log?SvId=primary&type=log&table=User&key="+key+"&";
+      if(fields!=null){
+        for (String field: fields){
+          url+="fields="+field+"&";
+        }
       }
-      assert !fieldIterator.hasNext() && !valueIterator.hasNext();
+      url = url.substring(0, url.length()-1);     
+      URL obj;
+      HttpURLConnection con = null;
+      obj = new URL(url);
+      con = (HttpURLConnection) obj.openConnection();
+      con.setRequestMethod("GET");
+      con.setRequestProperty("Accept", "application/json");
+      BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()));
+      ObjectMapper mapper=new ObjectMapper();
+      String inputLine;
+      while ((inputLine = in.readLine()) != null) {
+        Map<String, String> object=new HashMap<String, String>();
+        object=mapper.readValue(inputLine, new TypeReference<Map<String, String>>(){});
+        for (Map.Entry<String, String> entry: object.entrySet()){
+          object.put(entry.getKey(), entry.getValue());
+        }
+        StringByteIterator.putAllAsByteIterators(result, object);
+      }
+      in.close();
+    } catch (Exception e) {
+      e.printStackTrace();
+      return Status.ERROR;
     }
-    return result.isEmpty() ? Status.ERROR : Status.OK;
+    return Status.OK;          
   }
 
   @Override
@@ -126,12 +111,34 @@ public class RedisClient extends DB {
       Map<String, ByteIterator> values) {
     try {
       Map<String, String> map = StringByteIterator.getStringMap(values);
-      String url = "http://localhost:5000/insert?table=User&key="+key+"&index_key=";
-      url+=INDEX_KEY+"&hashed_key="+hash(key)+"&";
+      String url = "https://o9doeirora.execute-api.eu-central-1.amazonaws.com/default/serverlessfunct/insert?table=User&key="+key+"&";
       for (Map.Entry<String, String> field : map.entrySet()){
         url+=field.getKey()+"="+URLEncoder.encode(field.getValue(), "UTF-8")+"&";
+      
       }
-      url = url.substring(0, url.length()-1);
+      url = url.substring(0, url.length()-1);     
+      URL obj;
+      HttpURLConnection con = null;
+      obj = new URL(url);
+      con = (HttpURLConnection) obj.openConnection();
+      con.setRequestMethod("GET");
+      con.setRequestProperty("Accept", "application/json");
+      BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()));
+      in.readLine();
+      in.close();
+      jedis.zadd(INDEX_KEY, hash(key), key);
+    } catch (Exception e) {
+      e.printStackTrace();
+      return Status.ERROR;
+    }
+
+    return Status.OK;
+  }
+
+  @Override
+  public Status delete(String table, String key) {
+    try {
+      String url = "https://o9doeirora.execute-api.eu-central-1.amazonaws.com/default/serverlessfunct/delete?table=User&key="+key;
       URL obj;
       HttpURLConnection con = null;
       obj = new URL(url);
@@ -145,37 +152,55 @@ public class RedisClient extends DB {
       e.printStackTrace();
       return Status.ERROR;
     }
-
-    return Status.OK;
-  }
-
-  @Override
-  public Status delete(String table, String key) {
-    return jedis.del(key) == 0 && jedis.zrem(INDEX_KEY, key) == 0 ? Status.ERROR
-        : Status.OK;
+    return jedis.zrem(INDEX_KEY, key) == 0 ?  Status.ERROR
+       : Status.OK;
   }
 
   @Override
   public Status update(String table, String key,
       Map<String, ByteIterator> values) {
-    return jedis.hmset(key, StringByteIterator.getStringMap(values))
-        .equals("OK") ? Status.OK : Status.ERROR;
+    try {
+      Map<String, String> map = StringByteIterator.getStringMap(values);
+      String url = "https://o9doeirora.execute-api.eu-central-1.amazonaws.com/default/serverlessfunct/update?table=User&key="+key+"&";
+      for (Map.Entry<String, String> field : map.entrySet()){
+        url+=field.getKey()+"="+URLEncoder.encode(field.getValue(), "UTF-8")+"&";
+      }
+      url = url.substring(0, url.length()-1);     
+      URL obj;
+      HttpURLConnection con = null;
+      obj = new URL(url);
+      con = (HttpURLConnection) obj.openConnection();
+      con.setRequestMethod("GET");
+      con.setRequestProperty("Accept", "application/json");
+      BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()));
+      in.readLine();
+      in.close();
+    } catch (Exception e) {
+      e.printStackTrace();
+      return Status.ERROR;
+    }
+    return Status.OK;          
   }
 
   @Override
   public Status scan(String table, String startkey, int recordcount,
       Set<String> fields, Vector<HashMap<String, ByteIterator>> result) {
-    Set<String> keys = jedis.zrangeByScore(INDEX_KEY, hash(startkey),
-        Double.POSITIVE_INFINITY, 0, recordcount);
-
-    HashMap<String, ByteIterator> values;
-    for (String key : keys) {
+    try {
+      String url = "https://o9doeirora.execute-api.eu-central-1.amazonaws.com/default/serverlessfunct/scanLog?table=User&key=";
+      url+=startkey+"&recordCount="+recordcount+"&";
+      Set<String> keys = jedis.zrangeByScore(INDEX_KEY, hash(startkey),
+      Double.POSITIVE_INFINITY, 0, recordcount);
+      HashMap<String, ByteIterator> values;
+      for (String key : keys) {
       values = new HashMap<String, ByteIterator>();
       read(table, key, fields, values);
       result.add(values);
+   } 
+    }catch (Exception e) {
+      e.printStackTrace();
+      return Status.ERROR;
     }
-
     return Status.OK;
-  }
 
 }
+
